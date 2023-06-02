@@ -2,6 +2,7 @@ import logging
 import asyncio
 import gi
 import sys
+import time
 from dataclasses import dataclass
 
 gi.require_version('Gst', '1.0')
@@ -26,7 +27,7 @@ class CameraFrame:
         if self.map_info is not None:
             raise RuntimeError("Camera frame is already mapped")
         self.map_info = self.buffer.map(Gst.MapFlags.READ)
-        return memoryview(self.map_info.data)
+        return self.map_info.data
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         if self.map_info:
@@ -158,6 +159,7 @@ class Camera:
         source_format = f"video/x-raw,format=NV12,width={self._config.frame_width},height={self._config.frame_height}"
         source = None
         encoder = None
+        rate = f"videorate drop-only=true ! image/jpeg,framerate={self._config.frame_rate}/1"
 
         if self._config.fake_source:
             source = "videotestsrc is-live=true ! timeoverlay time-mode=buffer-time"
@@ -173,7 +175,7 @@ class Camera:
         else:
             raise RuntimeError("Error finding suitable jpeg encoder")
 
-        pipeline = Gst.parse_launch(f"{source} ! {source_format} ! {encoder} ! queue max-size-buffers=2 ! appsink name=sink emit-signals=True sync=True")
+        pipeline = Gst.parse_launch(f"{source} ! {source_format} ! {encoder} ! {rate} !  queue max-size-buffers=2 ! appsink name=sink emit-signals=True sync=True")
 
         sink = pipeline.get_by_name("sink")
         sink.connect("new-sample", self._on_sample_thread, None)

@@ -1,6 +1,6 @@
 import logging
 import uuid
-import time
+import asyncio
 from aiohttp.web import Application, Request, Response, FileResponse, StreamResponse, RouteTableDef, static, get
 
 from .camera import Camera
@@ -29,9 +29,11 @@ async def snapshot(request: Request) -> Response:
                         'Expires': '0'
                     }
                 )
-                await response.prepare(request)
-                await response.write(data)
-                await response.write_eof()
+                await asyncio.gather(
+                    response.prepare(request),
+                    response.write(data),
+                    response.write_eof()
+                )
         except CancelledError:
             pass
 
@@ -58,14 +60,15 @@ async def stream(request: Request) -> Response:
                 if (last_count is not None) and (frame.count-last_count > 1):
                     logger.info(f"{id} Dropped {frame.count-last_count-1} frames")
                 with frame as data:
-                    await response.write(
-                        bytes(f"--frame\r\n"
-                                "Content-Type: image/jpeg\r\n"
-                               f"Content-Length: {len(data)}\r\n"
-                                "\r\n", 'utf-8')
+                    await asyncio.gather(
+                        response.write(
+                            bytes(f"--frame\r\n"
+                                    "Content-Type: image/jpeg\r\n"
+                                   f"Content-Length: {len(data)}\r\n"
+                                    "\r\n", 'utf-8')),
+                        response.write(data),
+                        response.write(b"\r\n")
                     )
-                    await response.write(data)
-                    await response.write(b"\r\n")
                 last_count = frame.count
         except ConnectionResetError:
             logger.info(f"{id} Stream closed")
