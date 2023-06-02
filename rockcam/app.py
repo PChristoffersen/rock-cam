@@ -1,7 +1,10 @@
 import logging
+import uuid
+import time
 from aiohttp.web import Application, Request, Response, FileResponse, StreamResponse, RouteTableDef, static, get
 
 from .camera import Camera
+from .config import Configuration
 from asyncio.exceptions import CancelledError
 from pathlib import Path
 
@@ -34,7 +37,10 @@ async def snapshot(request: Request) -> Response:
 
 @routes.get("/stream")
 async def stream(request: Request) -> Response:
+    id = uuid.uuid1()
     with request.app['camera'] as camera:
+        logger.info(f"{id} Start stream  remote={request.remote}  n_streams={camera.n_streams}")
+
         response = StreamResponse(
             headers={
                 'Content-Type': 'multipart/x-mixed-replace; boundary=\"frame\"',
@@ -50,7 +56,7 @@ async def stream(request: Request) -> Response:
             while True:
                 frame = await camera.get_frame()
                 if (last_count is not None) and (frame.count-last_count > 1):
-                    logger.info(f"Dropped {frame.count-last_count-1} frames")
+                    logger.info(f"{id} Dropped {frame.count-last_count-1} frames")
                 with frame as data:
                     await response.write(
                         bytes(f"--frame\r\n"
@@ -62,13 +68,13 @@ async def stream(request: Request) -> Response:
                     await response.write(b"\r\n")
                 last_count = frame.count
         except ConnectionResetError:
-            logger.info("Stream closed")
+            logger.info(f"{id} Stream closed")
             return
         except CancelledError:
-            logger.info("Stream cancelled")
+            logger.info(f"{id} Stream cancelled")
             return
         except:
-            logger.error("Stream failed", exc_info=True)
+            logger.error(f"{id} Stream failed", exc_info=True)
             await response.write(b'--frame--\r\n')
         await response.write_eof()
 
@@ -81,7 +87,7 @@ async def default_index(request: Request) -> Response:
 
 async def app_on_startup(app: Application):
     logger.info("Startup")
-    camera = Camera()
+    camera = Camera(app["config"])
     app["camera"] = camera
 
 async def app_on_cleanup(app: Application):
@@ -91,8 +97,9 @@ async def app_on_cleanup(app: Application):
         camera.shutdown()
     app["camera"] = None
 
-def create_application() -> Application:
+def create_application(config: Configuration) -> Application:
     app = Application()
+    app["config"] = config
 
     www_dir = Path(__file__).parent.parent / "www"
     app.add_routes(routes)

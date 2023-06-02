@@ -7,6 +7,9 @@ from dataclasses import dataclass
 gi.require_version('Gst', '1.0')
 from gi.repository import Gst, GObject
 
+from .config import Configuration
+
+
 logger = logging.getLogger(__name__)
 
 Gst.init(sys.argv)
@@ -34,21 +37,15 @@ class CameraFrame:
 
 
 class Camera:
-    def __init__(self) -> None:
-        logger.info("Camera Created")
+    def __init__(self, config: Configuration) -> None:
         self._loop = asyncio.get_event_loop()
         self._sample = None
         self._sample_count = 0
         self._sample_cond = asyncio.Condition()
         self._n_streams = 0
-        self._idle_timeout = 30
         self._idle_handler = None
         
-        self._test_source = False
-        self._rotate = 180
-        self._frame_width = 1280
-        self._frame_height = 720
-        self._frame_rate = 30
+        self._config = config
 
         self._pipeline = self._create_pipeline()
         self._bus = self._pipeline.get_bus()
@@ -59,6 +56,9 @@ class Camera:
             raise RuntimeError("Failed to ready pipeline")
 
 
+    @property
+    def n_streams(self) -> int:
+        return self._n_streams
 
     async def get_frame(self) -> CameraFrame:
         async with self._sample_cond:
@@ -91,7 +91,6 @@ class Camera:
 
 
     def __enter__(self):
-        logger.info(f"Start stream {self._n_streams}")
         self._n_streams += 1
         if self._idle_handler:
             self._idle_handler.cancel()
@@ -102,9 +101,8 @@ class Camera:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._n_streams -= 1
-        logger.info(f"Stop stream {self._n_streams}")
         if self._n_streams == 0:
-            self._idle_handler = self._loop.call_later(self._idle_timeout, self._on_idle)
+            self._idle_handler = self._loop.call_later(self._config.idle_timeout, self._on_idle)
 
 
 
@@ -152,18 +150,18 @@ class Camera:
 
 
     def _create_pipeline(self) -> Gst.Pipeline:
-        source_format = f"video/x-raw,format=NV12,width={self._frame_width},height={self._frame_height},framerate={self._frame_rate}/1"
+        source_format = f"video/x-raw,format=NV12,width={self._config.frame_width},height={self._config.frame_height}"
         source = None
         encoder = None
 
-        if self._test_source:
+        if self._config.fake_source:
             source = "videotestsrc is-live=true ! timeoverlay time-mode=buffer-time"
         else:
-            source = "v4l2src name=src device=/dev/video0"
+            source = "v4l2src name=src device=/dev/video0 io-mode=4"
 
         if Gst.ElementFactory.find("mppjpegenc"):
             logger.info("Using hardware 'mppjpegenc' encoder")
-            encoder = f"mppjpegenc rotation={self._rotate}"
+            encoder = f"mppjpegenc rotation={self._config.frame_rotate}"
         elif Gst.ElementFactory.find("jpegenc"):
             logger.info("Using software jpeg encoder")
             encoder = "jpegenc"

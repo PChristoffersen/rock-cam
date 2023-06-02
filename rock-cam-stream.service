@@ -7,7 +7,7 @@ ConditionPathExists=/dev/video0
 
 [service]
 WorkingDirectory=/opt/rock-cam
-ExecStart=python3 -m rockcam
+ExecStart=python3 -m rockcam --host=127.0.0.1 --port=8083
 DynamicUser=yes
 SupplementaryGroups=video
 Restart=always
