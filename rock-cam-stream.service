@@ -1,0 +1,18 @@
+[Unit]
+Description=camera-streamer web camera
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/dev/video0
+
+
+[service]
+WorkingDirectory=/opt/rock-cam
+ExecStart=python3 -m rockcam
+DynamicUser=yes
+SupplementaryGroups=video
+Restart=always
+RestartSec=10
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

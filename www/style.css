@@ -1,0 +1,49 @@
+.page {
+  width: 100%;
+  padding: 8% 0 0;
+  margin: auto;
+  text-align: center;
+}
+.main {
+  position: relative;
+  z-index: 1;
+  background: #FFFFFF;
+  max-width: 360px;
+  margin: 0 auto 100px;
+  padding: 45px;
+  text-align: center;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.2), 0 5px 5px 0 rgba(0, 0, 0, 0.24);
+}
+.view {
+  display: inline-block;
+  width: fit-content;
+  height: fit-content;
+  background: #FFFFFF;
+  text-align: center;
+
+  padding: 4px 4px 0px 4px;
+  box-shadow: 0 0 20px 0 rgba(0, 0, 0, 0.2), 0 5px 5px 0 rgba(0, 0, 0, 0.24);
+}
+.view .stream {
+  width: 640px;
+  height: fit-content;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 300px;
+  margin: 0 auto;
+}
+
+html {
+    height: 100%;
+}
+body {
+  min-height: 100%;
+  background-color: #19758b;
+  background-image: linear-gradient(45deg,#19758b,#1A5276);
+  font-family: sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
