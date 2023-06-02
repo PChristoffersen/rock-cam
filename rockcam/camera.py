@@ -44,6 +44,7 @@ class Camera:
         self._sample_cond = asyncio.Condition()
         self._n_streams = 0
         self._idle_handler = None
+        self._started = False
         
         self._config = config
 
@@ -71,17 +72,21 @@ class Camera:
 
 
     def start(self):
-        logger.info("Starting camera")
-        ret = self._pipeline.set_state(Gst.State.PLAYING)
-        if ret == Gst.StateChangeReturn.FAILURE:
-            raise RuntimeError("Failed to start pipeline")
+        if not self._started:
+            logger.info("Starting camera")
+            ret = self._pipeline.set_state(Gst.State.PLAYING)
+            if ret == Gst.StateChangeReturn.FAILURE:
+                raise RuntimeError("Failed to start pipeline")
+            self._started = True
         
 
     def stop(self):
-        logger.info("Stopping camera")
-        ret = self._pipeline.set_state(Gst.State.READY)
-        if ret == Gst.StateChangeReturn.FAILURE:
-            raise RuntimeError("Failed to pause pipeline")
+        if self._started:
+            logger.info("Stopping camera")
+            ret = self._pipeline.set_state(Gst.State.READY)
+            if ret == Gst.StateChangeReturn.FAILURE:
+                raise RuntimeError("Failed to pause pipeline")
+            self._started = False
 
     def shutdown(self):
         ret = self._pipeline.set_state(Gst.State.NULL)
