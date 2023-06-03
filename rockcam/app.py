@@ -19,21 +19,18 @@ async def snapshot(request: Request) -> Response:
     with request.app['camera'] as camera:
         try:
             frame = await camera.get_frame()
-            with frame as data:
-                response = StreamResponse(
-                    headers={
-                        'Content-Type': 'image/jpeg',
-                       f"Content-Length: {len(data)}"
-                        'Cache-Control': 'no-cache, no-store, must-revalidate',
-                        'Pragma': 'no-cache',
-                        'Expires': '0'
-                    }
-                )
-                await asyncio.gather(
-                    response.prepare(request),
-                    response.write(data),
-                    response.write_eof()
-                )
+            response = StreamResponse(
+                headers={
+                    'Content-Type': 'image/jpeg',
+                    f"Content-Length: {len(frame.data)}"
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0'
+                }
+            )
+            await response.prepare(request),
+            await response.write(frame.data),
+            await response.write_eof()
         except CancelledError:
             pass
 
@@ -56,19 +53,16 @@ async def stream(request: Request) -> Response:
         try:
             last_count = None
             while True:
-                frame = await camera.get_frame()
+                frame = await camera.get_frame(last_count)
                 if (last_count is not None) and (frame.count-last_count > 1):
-                    logger.info(f"{id} Dropped {frame.count-last_count-1} frames")
-                with frame as data:
-                    await asyncio.gather(
-                        response.write(
-                            bytes(f"--frame\r\n"
-                                    "Content-Type: image/jpeg\r\n"
-                                   f"Content-Length: {len(data)}\r\n"
-                                    "\r\n", 'utf-8')),
-                        response.write(data),
-                        response.write(b"\r\n")
-                    )
+                    logger.info(f"{id} Dropped {frame.count-last_count-1} frame(s)")
+                await response.write(
+                    bytes(f"--frame\r\n"
+                            "Content-Type: image/jpeg\r\n"
+                            f"Content-Length: {len(frame.data)}\r\n"
+                            "\r\n", 'utf-8')),
+                await response.write(frame.data),
+                await response.write(b"\r\n")
                 last_count = frame.count
         except ConnectionResetError:
             logger.info(f"{id} Stream closed")

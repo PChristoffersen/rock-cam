@@ -19,30 +19,15 @@ Gst.init(sys.argv)
 @dataclass
 class CameraFrame:
     count: int
-    sample: Gst.Sample
-    buffer: Gst.Buffer
-    map_info: Gst.MapInfo = None
-
-    def __enter__(self) -> memoryview:
-        if self.map_info is not None:
-            raise RuntimeError("Camera frame is already mapped")
-        self.map_info = self.buffer.map(Gst.MapFlags.READ)
-        return self.map_info.data
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.map_info:
-            self.buffer.unmap(self.map_info)
-            self.map_info = None
-        else:
-            raise RuntimeError("Camera frame is already mapped")
+    data: bytes
 
 
 class Camera:
     def __init__(self, config: Configuration) -> None:
         self._loop = asyncio.get_event_loop()
-        self._sample = None
-        self._sample_count = 0
-        self._sample_cond = asyncio.Condition()
+        self._frame = None
+        self._frame_count = 0
+        self._frame_cond = asyncio.Condition()
         self._n_streams = 0
         self._idle_handler = None
         self._started = False
@@ -62,14 +47,11 @@ class Camera:
     def n_streams(self) -> int:
         return self._n_streams
 
-    async def get_frame(self) -> CameraFrame:
-        async with self._sample_cond:
-            await self._sample_cond.wait()
-            return CameraFrame(
-                count=self._sample_count, 
-                sample=self._sample, 
-                buffer=self._sample.get_buffer()
-            )
+    async def get_frame(self, last_count: int = None) -> CameraFrame:
+        async with self._frame_cond:
+            if not self._frame or self._frame.count == last_count:
+                await self._frame_cond.wait()
+            return self._frame
 
 
     def start(self):
@@ -134,11 +116,12 @@ class Camera:
             logger.info(f" Type: {message.type}")
 
 
-    async def _on_sample(self, sample: Gst.Sample):
-        async with self._sample_cond:
-            self._sample = sample
-            self._sample_count += 1
-            self._sample_cond.notify_all()
+    async def _on_frame(self, frame: CameraFrame):
+        async with self._frame_cond:
+            frame.count = self._frame_count
+            self._frame = frame
+            self._frame_count += 1
+            self._frame_cond.notify_all()
 
 
     def _on_bus(self):
@@ -150,7 +133,19 @@ class Camera:
     def _on_sample_thread(self, sink: Gst.Element, data) -> Gst.FlowReturn:
         sample = sink.emit("pull-sample")
         if isinstance(sample, Gst.Sample):
-            asyncio.run_coroutine_threadsafe(self._on_sample(sample), self._loop)
+            buffer = sample.get_buffer()
+            res,mapinfo = buffer.map(Gst.MapFlags.READ)
+            if res:
+                try:
+                    data = bytes(mapinfo.data)
+                finally:
+                    buffer.unmap(mapinfo)
+
+                frame = CameraFrame(
+                   count = 0,
+                   data = data
+                )
+                asyncio.run_coroutine_threadsafe(self._on_frame(frame), self._loop)
             return Gst.FlowReturn.OK
         return Gst.FlowReturn.ERROR        
 
