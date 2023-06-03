@@ -27,6 +27,7 @@
 .view .stream {
   width: fit-content;
   height: fit-content;
+  max-width: 90vw;
 }
 
 .container {

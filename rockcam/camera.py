@@ -20,6 +20,7 @@ Gst.init(sys.argv)
 class CameraFrame:
     count: int
     data: bytes
+    timestamp: int
 
 
 class Camera:
@@ -28,6 +29,7 @@ class Camera:
         self._frame = None
         self._frame_count = 0
         self._frame_cond = asyncio.Condition()
+        self._frame_time = time.clock_gettime(time.CLOCK_MONOTONIC)
         self._n_streams = 0
         self._idle_handler = None
         self._started = False
@@ -143,34 +145,36 @@ class Camera:
 
                 frame = CameraFrame(
                    count = 0,
-                   data = data
+                   data = data,
+                   timestamp = time.clock_gettime(time.CLOCK_MONOTONIC)
                 )
+                #logger.info(f"Frame {len(data)} {(frame.timestamp-self._frame_time)*1000.0:4.0f} {sample.get_caps()}")
+                self._frame_time = frame.timestamp
                 asyncio.run_coroutine_threadsafe(self._on_frame(frame), self._loop)
             return Gst.FlowReturn.OK
         return Gst.FlowReturn.ERROR        
 
 
     def _create_pipeline(self) -> Gst.Pipeline:
-        source_format = f"video/x-raw,format=NV12,width={self._config.frame_width},height={self._config.frame_height}"
+        source_format = f"video/x-raw,format=NV12,width={self._config.source.capture_width},height={self._config.source.capture_height}"
         source = None
         encoder = None
-        rate = f"videorate drop-only=true ! image/jpeg,framerate={self._config.frame_rate}/1"
 
-        if self._config.fake_source:
+        if self._config.source.fake_source:
             source = "videotestsrc is-live=true ! timeoverlay time-mode=buffer-time"
         else:
             source = "v4l2src name=src device=/dev/video0 io-mode=4"
 
         if Gst.ElementFactory.find("mppjpegenc"):
             logger.info("Using hardware 'mppjpegenc' encoder")
-            encoder = f"mppjpegenc rotation={self._config.frame_rotate}"
+            encoder = f"mppjpegenc name=encoder rotation={self._config.pipeline.frame_rotate} width={self._config.pipeline.frame_width} height={self._config.pipeline.frame_height} quant={int(round(self._config.encoder.quality/10))}"
         elif Gst.ElementFactory.find("jpegenc"):
             logger.info("Using software jpeg encoder")
-            encoder = "jpegenc"
+            encoder = "rotate angle={self._config.pipeline.frame_rotate} ! videoscale ! video/x-raw,width={self._config.pipeline.frame_width},height={self._config.pipeline.frame_height} ! jpegenc name=encoder"
         else:
             raise RuntimeError("Error finding suitable jpeg encoder")
 
-        pipeline = Gst.parse_launch(f"{source} ! {source_format} ! {encoder} ! {rate} !  queue max-size-buffers=2 ! appsink name=sink emit-signals=True sync=True")
+        pipeline = Gst.parse_launch(f"{source} ! {source_format} ! {encoder} ! queue max-size-buffers=2 ! appsink name=sink emit-signals=True sync=True")
 
         sink = pipeline.get_by_name("sink")
         sink.connect("new-sample", self._on_sample_thread, None)
