@@ -70,6 +70,9 @@ async def stream(request: Request) -> Response:
         except CancelledError:
             logger.info(f"{id} Stream cancelled")
             return
+        except EOFError:
+            logger.info(f"{id} Pipeline stopped")
+            await response.write(b'--frame--\r\n')
         except:
             logger.error(f"{id} Stream failed", exc_info=True)
             await response.write(b'--frame--\r\n')
@@ -91,8 +94,16 @@ async def app_on_cleanup(app: Application):
     logger.info("Cleanup")
     camera: Camera = app["camera"]
     if camera:
-        camera.shutdown()
+        await camera.shutdown()
     app["camera"] = None
+
+
+async def app_on_shutdown(app: Application):
+    logger.info("Shutdown")
+    camera: Camera = app["camera"]
+    if camera:
+        await camera.shutdown()
+
 
 def create_application(config: Configuration) -> Application:
     app = Application()
@@ -102,6 +113,7 @@ def create_application(config: Configuration) -> Application:
     app.add_routes(routes)
     app.add_routes([static("/", str(www_dir))])
 
+    app.on_shutdown.append(app_on_shutdown)
     app.on_startup.append(app_on_startup)
     app.on_cleanup.append(app_on_cleanup)
 

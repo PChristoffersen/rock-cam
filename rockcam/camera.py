@@ -51,6 +51,8 @@ class Camera:
 
     async def get_frame(self, last_count: int = None) -> CameraFrame:
         async with self._frame_cond:
+            if not self._started:
+                raise EOFError("Stream not running")
             if not self._frame or self._frame.count == last_count:
                 await self._frame_cond.wait()
             return self._frame
@@ -72,11 +74,13 @@ class Camera:
             if ret == Gst.StateChangeReturn.FAILURE:
                 raise RuntimeError("Failed to pause pipeline")
             self._started = False
+            self._frame_cond.notify_all()
 
-    def shutdown(self):
-        ret = self._pipeline.set_state(Gst.State.NULL)
-        if ret == Gst.StateChangeReturn.FAILURE:
-            raise RuntimeError("Failed to shutdown pipeline")
+    async def shutdown(self):
+        async with self._frame_cond:
+            if self._started:
+                self.stop()
+                self._frame_cond.notify_all()
 
 
 
@@ -92,7 +96,7 @@ class Camera:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self._n_streams -= 1
         if self._n_streams == 0:
-            self._idle_handler = self._loop.call_later(self._config.idle_timeout, self._on_idle)
+            self._idle_handler = self._loop.call_later(self._config.pipeline.idle_timeout, self._on_idle)
 
 
 
@@ -170,7 +174,7 @@ class Camera:
             encoder = f"mppjpegenc name=encoder rotation={self._config.pipeline.frame_rotate} width={self._config.pipeline.frame_width} height={self._config.pipeline.frame_height} quant={int(round(self._config.encoder.quality/10))}"
         elif Gst.ElementFactory.find("jpegenc"):
             logger.info("Using software jpeg encoder")
-            encoder = "rotate angle={self._config.pipeline.frame_rotate} ! videoscale ! video/x-raw,width={self._config.pipeline.frame_width},height={self._config.pipeline.frame_height} ! jpegenc name=encoder"
+            encoder = "jpegenc name=encoder"
         else:
             raise RuntimeError("Error finding suitable jpeg encoder")
 
